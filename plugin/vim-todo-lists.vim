@@ -25,6 +25,9 @@
 function! VimTodoListsInit()
   set filetype=todo
 
+  call VimTodoListsEnsureFrontmatter()
+  call VimTodoListsParseFrontmatter()
+
   " Keep the same indent as on the current line or always makes a root item
   if !exists('g:VimTodoListsKeepSameIndent')
     let g:VimTodoListsKeepSameIndent = 1
@@ -80,10 +83,50 @@ function! VimTodoListsInitializeSyntax()
   execute("syntax match vimTodoListsDone '^\\s*".g:VimTodoListsDoneItemEscaped.".*'")
   execute("syntax match vimTodoListsNormal '^\\s*".g:VimTodoListsUndoneItemEscaped.".*'")
   execute("syntax match vimTodoListsImportant '^\\s*".g:VimTodoListsUndoneItemEscaped."\\s*!.*'")
+  syntax region vimTodoListsFrontmatter start='^#---feature toggles$' end='^#---end feature toggles$'
 
   highlight link vimTodoListsDone Comment
   highlight link vimTodoListsNormal Normal
   highlight link vimTodoListsImportant Underlined
+  highlight link vimTodoListsFrontmatter Comment
+endfunction
+
+" Ensures the feature toggle frontmatter block exists in the buffer
+function! VimTodoListsEnsureFrontmatter()
+  if search('^#---feature toggles$', 'n') != 0 && search('^#---end feature toggles$', 'n') != 0
+    return
+  endif
+
+  call append(0, [
+    \ '#---feature toggles',
+    \ '# cascade_closing_parent_tasks:true',
+    \ '#---end feature toggles',
+    \ ])
+endfunction
+
+" Parses the feature toggle frontmatter block into b:vimtodolists_toggles
+function! VimTodoListsParseFrontmatter()
+  let b:vimtodolists_toggles = {}
+
+  let l:start = search('^#---feature toggles$', 'n')
+  let l:end = search('^#---end feature toggles$', 'n')
+
+  if l:start == 0 || l:end == 0 || l:end <= l:start
+    return
+  endif
+
+  for l:lineno in range(l:start + 1, l:end - 1)
+    let l:matches = matchlist(getline(l:lineno), '^#\s*\(\w\+\)\s*:\s*\(\S\+\)\s*$')
+
+    if !empty(l:matches)
+      let b:vimtodolists_toggles[l:matches[1]] = l:matches[2]
+    endif
+  endfor
+endfunction
+
+" Returns 0 when the named toggle is explicitly set to false, 1 otherwise
+function! VimTodoListsToggleEnabled(name)
+  return get(get(b:, 'vimtodolists_toggles', {}), a:name, 'true') !=# 'false'
 endfunction
 
 " Sets the item done
@@ -305,6 +348,10 @@ endfunction
 
 " Marks the parent done if all children are done
 function! VimTodoListsUpdateParent(lineno)
+  if !VimTodoListsToggleEnabled('cascade_closing_parent_tasks')
+    return
+  endif
+
   let l:parent_lineno = VimTodoListsFindParent(a:lineno)
 
   " No parent item
