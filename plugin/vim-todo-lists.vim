@@ -561,7 +561,7 @@ function! VimTodoListsShowLegend()
     \ 'relative': 'editor',
     \ 'width': l:width,
     \ 'height': len(l:lines),
-    \ 'row': 1,
+    \ 'row': 1 + len(l:lines),
     \ 'col': &columns - l:width - 2,
     \ 'style': 'minimal',
     \ 'border': 'rounded',
