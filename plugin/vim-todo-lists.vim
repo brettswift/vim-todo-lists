@@ -529,7 +529,7 @@ function! VimTodoListsSetItemMode()
   nnoremap <buffer><silent> D :call VimTodoListsArchiveItem()<CR>
   nnoremap <buffer><silent> <C-j> :call VimTodoListsMoveItemToNextSibling()<CR>
   nnoremap <buffer><silent> <C-k> :call VimTodoListsMoveItemToPreviousSibling()<CR>
-  nnoremap <buffer><silent> <leader>? :call VimTodoListsToggleLegend()<CR>
+  nnoremap <buffer><silent> g? :call VimTodoListsToggleLegend()<CR>
 endfunction
 
 " Shows a floating legend of key shortcuts in the top-right corner
@@ -550,7 +550,7 @@ function! VimTodoListsShowLegend()
     \ ' D          archive item',
     \ ' <C-j>/<C-k> move to next/prev section',
     \ ' <leader>e  toggle normal mode',
-    \ ' <leader>?  toggle this legend',
+    \ ' g?         toggle this legend',
     \ ]
 
   let l:width = max(map(copy(l:lines), 'strdisplaywidth(v:val)')) + 1
@@ -561,7 +561,7 @@ function! VimTodoListsShowLegend()
     \ 'relative': 'editor',
     \ 'width': l:width,
     \ 'height': len(l:lines),
-    \ 'row': 1 + len(l:lines),
+    \ 'row': 4 + len(l:lines),
     \ 'col': &columns - l:width - 2,
     \ 'style': 'minimal',
     \ 'border': 'rounded',
