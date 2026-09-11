@@ -60,6 +60,13 @@ function! VimTodoListsInit()
   else
     call VimTodoListsSetItemMode()
   endif
+
+  call VimTodoListsShowLegend()
+
+  augroup vimtodolists_legend
+    autocmd! * <buffer>
+    autocmd BufWinLeave,BufDelete <buffer> call VimTodoListsHideLegend()
+  augroup end
 endfunction
 
 " Initializes done/undone tokens
@@ -300,6 +307,71 @@ function! VimTodoListsMoveSubtreeDown(lineno)
 endfunction
 
 
+" Moves a subtree to be positioned immediately after the given line,
+" without touching any register
+function! VimTodoListsMoveSubtreeAfter(lineno, after_line)
+  let l:last_child = VimTodoListsFindLastChild(a:lineno)
+  let l:subtree = getline(a:lineno, l:last_child)
+
+  execute a:lineno . ',' . l:last_child . 'delete _'
+
+  let l:insert_after = a:after_line
+  if l:insert_after >= a:lineno
+    let l:insert_after -= len(l:subtree)
+  endif
+
+  call append(l:insert_after, l:subtree)
+endfunction
+
+
+" Swaps the item under the cursor with its next sibling section
+function! VimTodoListsMoveItemToNextSibling()
+  let l:lineno = line('.')
+  let l:cursor_col = col('.')
+  let l:next_sibling = VimTodoListsFindNextSibling(l:lineno)
+
+  if l:next_sibling == -1
+    return
+  endif
+
+  let l:next_sibling_end = VimTodoListsFindLastChild(l:next_sibling)
+  let l:next_sibling_size = l:next_sibling_end - l:next_sibling + 1
+
+  call VimTodoListsMoveSubtreeAfter(l:lineno, l:next_sibling_end)
+  call cursor(l:lineno + l:next_sibling_size, l:cursor_col)
+endfunction
+
+
+" Swaps the item under the cursor with its previous sibling section
+function! VimTodoListsMoveItemToPreviousSibling()
+  let l:lineno = line('.')
+  let l:cursor_col = col('.')
+  let l:previous_sibling = VimTodoListsFindPreviousSibling(l:lineno)
+
+  if l:previous_sibling == -1
+    return
+  endif
+
+  call VimTodoListsMoveSubtreeAfter(l:lineno, l:previous_sibling - 1)
+  call cursor(l:previous_sibling, l:cursor_col)
+endfunction
+
+
+" Deletes the item subtree under the cursor and appends it, timestamped,
+" to a companion "<filename>.completed" file
+function! VimTodoListsArchiveItem()
+  let l:lineno = line('.')
+  let l:last_child = VimTodoListsFindLastChild(l:lineno)
+  let l:subtree = getline(l:lineno, l:last_child)
+
+  let l:archive_file = expand('%:p') . '.completed'
+  let l:header = ['', '# archived ' . strftime('%Y-%m-%d %H:%M:%S')]
+
+  call writefile(l:header + l:subtree, l:archive_file, 'a')
+  execute l:lineno . ',' . l:last_child . 'delete _'
+endfunction
+
+
 " Counts the number of leading spaces
 function! VimTodoListsCountLeadingSpaces(line)
   return (strlen(a:line) - strlen(substitute(a:line, '^\s*', '', '')))
@@ -343,6 +415,35 @@ function! VimTodoListsFindLastChild(lineno)
   endfor
 
   return l:last_child_lineno
+endfunction
+
+
+" Returns the line number of the next sibling at the same indent level
+function! VimTodoListsFindNextSibling(lineno)
+  let l:last_child = VimTodoListsFindLastChild(a:lineno)
+  return VimTodoListsBrotherItemInRange(a:lineno, range(l:last_child + 1, line('$')))
+endfunction
+
+
+" Returns the line number of the previous sibling at the same indent level
+function! VimTodoListsFindPreviousSibling(lineno)
+  let l:indent = VimTodoListsCountLeadingSpaces(getline(a:lineno))
+
+  for current_line in range(a:lineno - 1, 1, -1)
+    if VimTodoListsLineIsItem(getline(current_line)) == 0
+      continue
+    endif
+
+    let l:current_indent = VimTodoListsCountLeadingSpaces(getline(current_line))
+
+    if l:current_indent == l:indent
+      return current_line
+    elseif l:current_indent < l:indent
+      return -1
+    endif
+  endfor
+
+  return -1
 endfunction
 
 
@@ -425,7 +526,72 @@ function! VimTodoListsSetItemMode()
   vnoremap <buffer><silent> <S-Tab> :VimTodoListsDecreaseIndent<CR>
   inoremap <buffer><silent> <Tab> <ESC>:VimTodoListsIncreaseIndent<CR>A
   inoremap <buffer><silent> <S-Tab> <ESC>:VimTodoListsDecreaseIndent<CR>A
+  nnoremap <buffer><silent> D :call VimTodoListsArchiveItem()<CR>
+  nnoremap <buffer><silent> <C-j> :call VimTodoListsMoveItemToNextSibling()<CR>
+  nnoremap <buffer><silent> <C-k> :call VimTodoListsMoveItemToPreviousSibling()<CR>
+  nnoremap <buffer><silent> <leader>? :call VimTodoListsToggleLegend()<CR>
 endfunction
+
+" Shows a floating legend of key shortcuts in the top-right corner
+function! VimTodoListsShowLegend()
+  if !has('nvim')
+    return
+  endif
+
+  if exists('b:vimtodolists_legend_win') && nvim_win_is_valid(b:vimtodolists_legend_win)
+    return
+  endif
+
+  let l:lines = [
+    \ ' j/k        next/prev item',
+    \ ' o/O        new item below/above',
+    \ ' <Space>    toggle done',
+    \ ' Tab/S-Tab  indent/outdent',
+    \ ' D          archive item',
+    \ ' <C-j>/<C-k> move to next/prev section',
+    \ ' <leader>e  toggle normal mode',
+    \ ' <leader>?  toggle this legend',
+    \ ]
+
+  let l:width = max(map(copy(l:lines), 'strdisplaywidth(v:val)')) + 1
+  let l:buf = nvim_create_buf(v:false, v:true)
+  call nvim_buf_set_lines(l:buf, 0, -1, v:false, l:lines)
+
+  let l:opts = {
+    \ 'relative': 'editor',
+    \ 'width': l:width,
+    \ 'height': len(l:lines),
+    \ 'row': 1,
+    \ 'col': &columns - l:width - 2,
+    \ 'style': 'minimal',
+    \ 'border': 'rounded',
+    \ 'focusable': v:false,
+    \ }
+
+  let b:vimtodolists_legend_win = nvim_open_win(l:buf, v:false, l:opts)
+  call nvim_win_set_option(b:vimtodolists_legend_win, 'winhighlight', 'Normal:Comment,FloatBorder:Comment')
+endfunction
+
+
+" Hides the floating legend, if it is currently shown
+function! VimTodoListsHideLegend()
+  if exists('b:vimtodolists_legend_win') && nvim_win_is_valid(b:vimtodolists_legend_win)
+    call nvim_win_close(b:vimtodolists_legend_win, v:true)
+  endif
+
+  unlet! b:vimtodolists_legend_win
+endfunction
+
+
+" Toggles the floating legend on or off
+function! VimTodoListsToggleLegend()
+  if exists('b:vimtodolists_legend_win') && nvim_win_is_valid(b:vimtodolists_legend_win)
+    call VimTodoListsHideLegend()
+  else
+    call VimTodoListsShowLegend()
+  endif
+endfunction
+
 
 " Appends date at the end of the line
 function! VimTodoListsAppendDate()
